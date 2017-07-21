@@ -1,0 +1,5 @@
+applications:
+- name: blue-green-html-test
+  memory: 64M
+  host: blue-green-html-test
+  buildpack: staticfile_buildpack
