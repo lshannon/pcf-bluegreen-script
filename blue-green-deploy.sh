@@ -1,12 +1,15 @@
 #!/bin/sh
 
-echo "++++++++++++++++++++++++++++++++++"
-echo "Blue Green Deployment Starting"
-echo "++++++++++++++++++++++++++++++++++"
+echo "+++++++++++++++++++++++++++++++++++++++++++++++++++"
+echo "Blue Green Deployment"
+echo "https://github.com/lshannon/pcf-bluegreen-script"
+echo "+++++++++++++++++++++++++++++++++++++++++++++++++++"
+echo ""
+echo ""
 
 if [ "$#" -ne 3 ]; then
 	    echo "Usage: blue-green-deploy.sh 'PCF Domain' 'Existing Application Name In PCF' 'Location Of Application To Deploy'";
-	    echo "Hint: blue-green-deploy.sh 'cfapps.io' 'spring-music' './green-app' ";
+	    echo "Hint: blue-green-deploy.sh 'cfapps.io' 'spring-music' 'green-app' ";
 	    echo "Program terminating ...";
 	    exit 1;
 fi
@@ -16,49 +19,38 @@ DOMAIN=$1
 ORIGINAL_APP=$2
 NEW_APP_NAME="$2-green"
 NEW_APP_LOCATION="$3"
-OLD_APP="$2-blue"
+OLD_APP="$2-previous"
 
-echo "++++++++++++++++++++++++++++++++++"
-echo "Blue Green Plan"
-echo "++++++++++++++++++++++++++++++++++"
+echo "Steps To Execute:"
+echo "----------------------------"
+echo "1. Check for $ORIGINAL_APP"
+echo "2. Deploy The Contents of $NEW_APP_LOCATION as $NEW_APP_NAME"
+echo "3. Run smoke Tests on $NEW_APP_NAME"
+echo "4. Switch over traffic from $ORIGINAL_APP to $NEW_APP_NAME"
+echo "5. Rename $NEW_APP_NAME to be $ORIGINAL_APP"
+echo "6. Clean Up (scale down, stop, unmap)"
 echo ""
-echo "At the end of this you should have 2 instances running of the new application and the currently " +
-" running version in the space named $OLD_APP (it will be stopped with no route)"
-echo ""
-echo "Here are the steps:"
-echo "-------------------"
-echo "1. Check the original application is running/exists"
-echo "2. Deploy The Blue Version of the application"
-echo "3. Run a basic health check (ensure HTTP 200 on an endpoint)"
-echo "4. Scale up the blue application"
-echo "5. Switch over traffic from the current application to the blue one"
-echo "6. Stop the previous application and name it appropriately (blue)"
-echo "7. Clean up"
-echo ""
-echo "++++++++++++++++++++++++++++++++++"
-echo "Applications and Domain"
-echo "++++++++++++++++++++++++++++++++++"
-echo "Application: $ORIGINAL_APP"
-echo "Domain: $DOMAIN"
-echo ""
-echo "1. Check the original application is running/exists"
+echo "1. Check for $ORIGINAL_APP"
+echo "---------------------------------------------------"
 OUTPUT="$(cf events $ORIGINAL_APP)"
 if [[ $OUTPUT == *"App $ORIGINAL_APP not found"* ]]; then
   echo "Need to do an intial CF push on $ORIGINAL_APP before doing a Blue Green Deployment"
 	echo "Program Terminating..."
 	exit 1;
+else
+	echo "$ORIGINAL_APP exists. Proceeding with the Upgrade..."
 fi
 echo ""
 
 # push the application with a manifest that binds all required services
-echo "2. Deploy The Blue Version of the application"
+echo "2. Deploy The Contents of $NEW_APP_LOCATION as $NEW_APP_NAME"
 echo ""
-echo "cf push $NEW_APP_NAME -p $NEW_APP_LOCATION"
-cf push $NEW_APP_NAME -p $NEW_APP_LOCATION
+echo "Running: cf push -f $NEW_APP_LOCATION -p $NEW_APP_LOCATION -n $NEW_APP_NAME"
+cf push -p $NEW_APP_LOCATION  -f $NEW_APP_LOCATION -n $NEW_APP_NAME
 echo ""
 
 # Run Tests on the newly deployed app check that it is okay
-echo "3. Run a basic health check (ensure HTTP 200 on an endpoint)"
+echo "3. Run smoke Tests on $NEW_APP_NAME"
 echo ""
 RESPONSE=`curl -sI http://NEW_APP_NAME.$DOMAIN/health`
 echo "$RESPONSE"
@@ -72,20 +64,14 @@ then
 fi
 echo ""
 
-# scale up the new app instance
-echo "4. Scale up the green application"
-echo "cf scale $NEW_APP_NAME -i 2"
-cf scale $NEW_APP_NAME -i 2
-echo ""
-
 # start directing traffic to the new app instance
-echo "5. Switch over traffic from the current application to the blue one"
+echo "4. Switch over traffic from $ORIGINAL_APP to $NEW_APP_NAME"
 echo "cf map-route $NEW_APP_NAME $DOMAIN -n $ORIGINAL_APP"
 cf map-route $NEW_APP_NAME $DOMAIN -n $ORIGINAL_APP
 echo ""
 
 # scale down the proi app instances
-echo "6. Stop the previous application and name it appropriately (in case of roll back)"
+echo "5. Clean Up (delete temp routes)"
 echo "Order of operations:"
 echo "a. Scale Down"
 echo "b. Unmap"
@@ -97,37 +83,34 @@ cf scale $ORIGINAL_APP -i 1
 echo ""
 
 # stop taking traffic on the current prod instance
-echo "b. Unmap"
-echo "cf unmap-route javascript-ui $DOMAIN -n javascript-ui"
+echo "b. Unmap $ORIGINAL_APP"
+echo "cf unmap-route $ORIGINAL_APP $DOMAIN -n $ORIGINAL_APP"
 cf unmap-route $ORIGINAL_APP $DOMAIN -n $ORIGINAL_APP
 echo ""
 
 # decommission the old app
-echo "c. Stop"
+echo "c. Stop $ORIGINAL_APP"
 echo "cf stop $ORIGINAL_APP"
 cf stop $ORIGINAL_APP
 echo ""
 
-echo "7. Clean up"
-echo ""
-
 # delete any version of the old app that might be lying around still
-echo "Delete any old back up versions of the application"
+echo "Delete previous $OLD_APP"
 echo "cf delete $OLD_APP -f"
 cf delete $OLD_APP -f
 
-echo "Rename the old service to a name that reflects it new status"
-echo "cf rename javascript-service javascript-service-old"
+echo "Rename $ORIGINAL_APP to $ORIGINAL_APP-old"
+echo "cf rename $ORIGINAL_APP $ORIGINAL_APP-old"
 cf rename $ORIGINAL_APP $ORIGINAL_APP-old
 echo ""
 
 # clean up the temp route
-echo "Remove the temp route"
+echo "Remove the temp route for $NEW_APP_NAME"
 echo "cf unmap-route $NEW_APP_NAME $DOMAIN -n $NEW_APP_NAME"
 cf unmap-route $NEW_APP_NAME $DOMAIN -n $NEW_APP_NAME
 echo ""
 
 # rename the app
-echo "Rename the app"
+echo "Rename $NEW_APP_NAME to $ORIGINAL_APP"
 echo "cf rename $NEW_APP_NAME $ORIGINAL_APP"
 cf rename $NEW_APP_NAME $ORIGINAL_APP

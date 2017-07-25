@@ -1,5 +1,6 @@
 applications:
 - name: blue-green-html-test
   memory: 64M
+  instances: 2
   host: blue-green-html-test
   buildpack: staticfile_buildpack
